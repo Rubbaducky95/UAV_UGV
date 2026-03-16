@@ -31,11 +31,15 @@ module UGV extends AdhocHost
 network UAV2UGVSimulation
 {
     parameters:
-        bool enableGazeboBridge = default(false);
+        bool enableGazeboBridge   = default(false);
+        bool enableMetricsServer  = default(false);
         @display("bgb=0,0");
     submodules:
         gazeboScheduler: GazeboPositionScheduler if enableGazeboBridge {
             @display("p=30,310");
+        }
+        metricsServer: OmnetMetricsServer if enableMetricsServer {
+            @display("p=30,360");
         }
         visualizer: IntegratedVisualizer {
             @display("p=30,267");

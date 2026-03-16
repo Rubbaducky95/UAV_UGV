@@ -185,11 +185,15 @@ module LoRaMobileGW like INetworkNode
 network UAV2UGVLoRaSimulation
 {
     parameters:
-        bool enableGazeboBridge = default(false);
+        bool enableGazeboBridge  = default(false);
+        bool enableMetricsServer = default(false);
         @display("bgb=0,0");
     submodules:
         gazeboScheduler: GazeboPositionScheduler if enableGazeboBridge {
             @display("p=30,340");
+        }
+        metricsServer: OmnetMetricsServer if enableMetricsServer {
+            @display("p=30,390");
         }
         visualizer: IntegratedVisualizer {
             @display("p=30,300");

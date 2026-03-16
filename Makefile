@@ -31,7 +31,7 @@ PROJECTRELATIVE_PATH =
 O = $(PROJECT_OUTPUT_DIR)/$(CONFIGNAME)/$(PROJECTRELATIVE_PATH)
 
 # Object files for local .cc, .msg and .sm files
-OBJS = $O/src/gazebo/GazeboDrivenMobility.o $O/src/gazebo/GazeboPositionScheduler.o
+OBJS = $O/src/gazebo/GazeboDrivenMobility.o $O/src/gazebo/GazeboPositionScheduler.o $O/src/gazebo/OmnetMetricsServer.o
 
 # Message files
 MSGFILES =

@@ -11,9 +11,10 @@ repo and be installed separately.
 
 - `src/`: custom NED and C++ Gazebo bridge modules
 - `omnetpp.ini`: simulation configurations
-- `ground.xml`, `energyConsumptionParameters.xml`: simulation assets
+- `ground.xml`: physical environment asset (green floor plane)
 - `path_loss_analysis.py`, `network_metrics_analysis.py`, `analyze_advanced.py`:
-  analysis scripts
+  post-run analysis scripts
+- `run_qtenv.sh`: convenience launcher (wraps the long OMNeT++ invocation)
 - `images/`: project-local assets referenced by the visualizer
 
 ## External Prerequisites
@@ -123,6 +124,37 @@ python3 network_metrics_analysis.py \
   --results results/<run_dir> \
   --config WiFi \
   --pathloss-csv results/<run_dir>/Communication-GazeboBridge-WiFi-0_path_loss.csv
+```
+
+## Live Gazebo Bridge
+
+All `Communication-GazeboBridge-*` configs run in real-time and connect to the
+ROS2 simulation in `halmstad_ws`.
+
+**Gazebo → OMNeT (port 5555):** The `gazebo_pose_tcp_bridge` ROS2 node serves
+poses over TCP. OMNeT's `GazeboPositionScheduler` polls it and drives
+`GazeboDrivenMobility` for both UAV (`trackedModel=dji0`) and UGV
+(`trackedModel=robot`).
+
+**OMNeT → ROS2 (port 5556):** `OmnetMetricsServer` broadcasts live metrics once
+per 100 ms:
+
+```text
+<simtime_s> <distance_m> <rssi_dbm> <snir_db> <per> <radio_distance_m>
+```
+
+- `distance_m` — 3-D Euclidean distance from Gazebo positions (ground truth)
+- `radio_distance_m` — distance estimated by inverting the FSPL model from RSSI
+  (no Gazebo position data used; useful as a radio-only range estimate)
+
+The `omnet_metrics_bridge` ROS2 node connects to this port and publishes
+`/omnet/link_distance`, `/omnet/rssi_dbm`, `/omnet/snir_db`,
+`/omnet/packet_error_rate`, `/omnet/sim_time`, and `/omnet/radio_distance`.
+
+Use `run_qtenv.sh` for the quickest start:
+
+```bash
+./run_qtenv.sh wifi     # or 5g / lora
 ```
 
 ## Notes
