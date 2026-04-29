@@ -153,7 +153,7 @@ void OmnetMetricsServer::startServer()
                             port, strerror(sock_errno()));
     }
 
-    if (::listen(*sockPtr, 1) < 0) {
+    if (::listen(*sockPtr, 4) < 0) {
         closesocket(*sockPtr);
         delete sockPtr;
         throw cRuntimeError("OmnetMetricsServer: listen failed on port %d: %s",
@@ -166,8 +166,8 @@ void OmnetMetricsServer::startServer()
 
 void OmnetMetricsServer::tryAcceptClient()
 {
-    if (!serverSockPtr || clientSockPtr)
-        return; // already have a client or no server socket
+    if (!serverSockPtr)
+        return;
 
     SOCKET serverSock = sockFromPtr(serverSockPtr);
 
@@ -187,6 +187,11 @@ void OmnetMetricsServer::tryAcceptClient()
                                  &clientLen);
     if (clientSock == INVALID_SOCKET)
         return;
+
+    if (clientSockPtr) {
+        EV_INFO << "OmnetMetricsServer: replacing existing client" << omnetpp::endl;
+        closeClientSocket();
+    }
 
     int noDelay = 1;
     ::setsockopt(clientSock, IPPROTO_TCP, TCP_NODELAY,
@@ -214,7 +219,11 @@ void OmnetMetricsServer::sendMetricsLine()
         return;
 
     SOCKET clientSock = sockFromPtr(clientSockPtr);
+#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32) || defined(__CYGWIN__) || defined(_WIN64)
     ssize_t sent = ::send(clientSock, buf, static_cast<size_t>(n), 0);
+#else
+    ssize_t sent = ::send(clientSock, buf, static_cast<size_t>(n), MSG_NOSIGNAL);
+#endif
     if (sent <= 0) {
         EV_INFO << "OmnetMetricsServer: client disconnected" << omnetpp::endl;
         closeClientSocket();
