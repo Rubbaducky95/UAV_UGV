@@ -49,6 +49,12 @@ def _write_svg_line_plot(
         return margin_top + (1.0 - (y - y_min) / (y_max - y_min)) * plot_h
 
     points = " ".join(f"{map_x(x):.2f},{map_y(y):.2f}" for x, y in zip(xs, ys))
+    point_marks = ""
+    if len(xs) <= 200:
+        point_marks = "\n  ".join(
+            f'<circle cx="{map_x(x):.2f}" cy="{map_y(y):.2f}" r="3.5" fill="{line_color}"/>'
+            for x, y in zip(xs, ys)
+        )
 
     grid_lines = []
     ticks = 10
@@ -78,6 +84,7 @@ def _write_svg_line_plot(
   <line x1="{margin_left}" y1="{margin_top + plot_h}" x2="{margin_left + plot_w}" y2="{margin_top + plot_h}" stroke="#222" stroke-width="2"/>
   <line x1="{margin_left}" y1="{margin_top}" x2="{margin_left}" y2="{margin_top + plot_h}" stroke="#222" stroke-width="2"/>
   <polyline points="{points}" fill="none" stroke="{line_color}" stroke-width="2.5"/>
+  {point_marks}
   <text x="{margin_left + plot_w/2:.1f}" y="{height - 35}" text-anchor="middle" font-size="16" fill="#111">{x_label}</text>
   <text x="28" y="{margin_top + plot_h/2:.1f}" transform="rotate(-90 28,{margin_top + plot_h/2:.1f})" text-anchor="middle" font-size="16" fill="#111">{y_label}</text>
 </svg>
@@ -98,7 +105,7 @@ def _parse_vector_definitions(vec_file: Path) -> Dict[int, Tuple[str, str]]:
         for line in f:
             if not line.startswith("vector "):
                 continue
-            parts = line.strip().split()
+            parts = line.strip().split(maxsplit=3)
             if len(parts) < 4:
                 continue
             try:
@@ -106,9 +113,18 @@ def _parse_vector_definitions(vec_file: Path) -> Dict[int, Tuple[str, str]]:
             except ValueError:
                 continue
             module = parts[2]
-            name = parts[3]
+            name = _clean_vector_name(parts[3])
             definitions[vec_id] = (module, name)
     return definitions
+
+
+def _clean_vector_name(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith('"'):
+        end = raw.find('"', 1)
+        if end >= 0:
+            return raw[1:end]
+    return raw.split()[0] if raw else ""
 
 
 def _metric_key(module: str, name: str) -> Optional[str]:
@@ -116,9 +132,17 @@ def _metric_key(module: str, name: str) -> Optional[str]:
         return "snir_ugv"
     if module.endswith("uav.wlan[0].radio") and name.startswith("minSnir:vector"):
         return "snir_uav"
+    if module.endswith("ugv.LoRaGWNic.radio") and name.startswith("minSnir:vector"):
+        return "snir_ugv"
+    if module.endswith("uav.LoRaNic.radio") and name.startswith("minSnir:vector"):
+        return "snir_uav"
     if module.endswith("ugv.wlan[0].radio") and name.startswith("packetErrorRate:vector"):
         return "per_ugv"
     if module.endswith("uav.wlan[0].radio") and name.startswith("packetErrorRate:vector"):
+        return "per_uav"
+    if module.endswith("ugv.LoRaGWNic.radio") and name.startswith("packetErrorRate:vector"):
+        return "per_ugv"
+    if module.endswith("uav.LoRaNic.radio") and name.startswith("packetErrorRate:vector"):
         return "per_uav"
     if module.endswith("ugv.app[0]") and name.startswith("endToEndDelay:vector"):
         return "e2e_delay_ugv"
@@ -138,6 +162,26 @@ def _metric_key(module: str, name: str) -> Optional[str]:
         return "in_data_rate_uav"
     if module.endswith("uav.wlan[0].mac.dcf.channelAccess.pendingQueue") and name.startswith("outgoingDataRate:vector"):
         return "out_data_rate_uav"
+    if module.endswith("ugv.eth[0].queue") and name.startswith("queueLength:vector"):
+        return "queue_len_ugv"
+    if module.endswith("uav.LoRaNic.queue") and name.startswith("queueLength:vector"):
+        return "queue_len_uav"
+    if module.endswith("ugv.eth[0].queue") and name.startswith("incomingDataRate:vector"):
+        return "in_data_rate_ugv"
+    if module.endswith("ugv.eth[0].queue") and name.startswith("outgoingDataRate:vector"):
+        return "out_data_rate_ugv"
+    if module.endswith("uav.LoRaNic.queue") and name.startswith("incomingDataRate:vector"):
+        return "in_data_rate_uav"
+    if module.endswith("uav.LoRaNic.queue") and name.startswith("outgoingDataRate:vector"):
+        return "out_data_rate_uav"
+    if module.endswith("networkServer.app[0]") and name == "Vector of RSSI per node":
+        return "rssi_lora"
+    if module.endswith("networkServer.app[0]") and name == "Vector of SNIR per node":
+        return "snir_lora_server"
+    if module.endswith("uav.app[0]") and name == "SF Vector":
+        return "lora_sf"
+    if module.endswith("uav.app[0]") and name == "TP Vector":
+        return "lora_tx_power_dbm"
     return None
 
 
@@ -285,6 +329,11 @@ def _parse_sca_summary(sca_file: Optional[Path]) -> Dict[str, float]:
 
     sent_re = re.compile(r"^scalar\s+\S*uav\.app\[0\]\s+packetSent:count\s+([\deE+\-.]+)")
     recv_re = re.compile(r"^scalar\s+\S*ugv\.app\[0\]\s+packetReceived:count\s+([\deE+\-.]+)")
+    lora_sent_re = re.compile(r"^scalar\s+\S*uav\.app\[0\]\s+sentPackets\s+([\deE+\-.]+)")
+    lora_recv_re = re.compile(r"^scalar\s+\S*networkServer\.app\[0\]\s+totalReceivedPackets\s+([\deE+\-.]+)")
+    lora_ns_der_re = re.compile(r"^scalar\s+\S*networkServer\.app\[0\]\s+LoRa_NS_DER\s+([\deE+\-.]+)")
+    lora_gw_der_re = re.compile(r"^scalar\s+\S*ugv\.packetForwarder\s+LoRa_GW_DER\s+([\deE+\-.]+)")
+    lora_radio_der_re = re.compile(r'^scalar\s+\S*ugv\.LoRaGWNic\.radio\s+"DER - Data Extraction Rate"\s+([\deE+\-.]+)')
 
     with sca_file.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
@@ -295,9 +344,29 @@ def _parse_sca_summary(sca_file: Optional[Path]) -> Dict[str, float]:
             m = recv_re.match(line)
             if m:
                 summary["packets_received_ugv"] = float(m.group(1))
+                continue
+            m = lora_sent_re.match(line)
+            if m:
+                summary["packets_sent_uav"] = float(m.group(1))
+                continue
+            m = lora_recv_re.match(line)
+            if m:
+                summary["packets_received_network_server"] = float(m.group(1))
+                continue
+            m = lora_ns_der_re.match(line)
+            if m:
+                summary["lora_network_server_der"] = float(m.group(1))
+                continue
+            m = lora_gw_der_re.match(line)
+            if m:
+                summary["lora_gateway_der"] = float(m.group(1))
+                continue
+            m = lora_radio_der_re.match(line)
+            if m:
+                summary["lora_radio_der"] = float(m.group(1))
 
     sent = summary.get("packets_sent_uav", 0.0)
-    recv = summary.get("packets_received_ugv", 0.0)
+    recv = summary.get("packets_received_ugv", summary.get("packets_received_network_server", 0.0))
     if sent > 0:
         summary["pdr_percent"] = 100.0 * recv / sent
         summary["loss_percent"] = 100.0 - summary["pdr_percent"]
@@ -339,8 +408,13 @@ def main() -> None:
         default=None,
         help="Full file prefix to auto-pick latest run (deprecated; use --config)",
     )
-    parser.add_argument("--csv-dir", default=None, help="CSV output directory (default: same folder as input .vec)")
-    parser.add_argument("--plot-dir", default=None, help="Plot output directory (default: same folder as input .vec)")
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory for plots/summary/CSV (default: results/analysis/<run-stem>)",
+    )
+    parser.add_argument("--csv-dir", default=None, help="CSV output directory (default: output dir)")
+    parser.add_argument("--plot-dir", default=None, help="Plot output directory (default: output dir)")
     parser.add_argument("--write-csv", action="store_true", help="Write combined metric CSV (disabled by default to save space)")
     parser.add_argument(
         "--plot",
@@ -366,12 +440,13 @@ def main() -> None:
         raise SystemExit(f"No .vec file found for prefix '{config_prefix}' in {result_dir}")
 
     sca_file = Path(args.sca) if args.sca else _latest_matching(result_dir, f"{config_prefix}-#*.sca")
-    csv_dir = Path(args.csv_dir) if args.csv_dir else vec_file.parent
-    plot_dir = Path(args.plot_dir) if args.plot_dir else vec_file.parent
+    base = vec_file.stem
+    output_dir = Path(args.output_dir) if args.output_dir else vec_file.parent / "analysis" / base
+    csv_dir = Path(args.csv_dir) if args.csv_dir else output_dir
+    plot_dir = Path(args.plot_dir) if args.plot_dir else output_dir
     csv_dir.mkdir(parents=True, exist_ok=True)
     plot_dir.mkdir(parents=True, exist_ok=True)
 
-    base = vec_file.stem
     out_csv = csv_dir / f"{base}_network_metrics.csv"
     summary_txt = csv_dir / f"{base}_network_summary.txt"
 
@@ -388,7 +463,7 @@ def main() -> None:
     if args.pathloss_csv:
         pathloss_csv = Path(args.pathloss_csv)
     else:
-        guessed = _latest_matching(csv_dir, f"{config_prefix}-*_path_loss.csv")
+        guessed = _latest_matching(vec_file.parent, f"{config_prefix}-*_path_loss.csv")
         pathloss_csv = guessed
     rssi_points = _read_pathloss_rssi(pathloss_csv)
     if rssi_points:
@@ -413,14 +488,20 @@ def main() -> None:
     # Plot selected metrics
     plot_specs = {
         "rssi_estimated": ("Estimated RSSI Over Time", "Time (s)", "RSSI (dBm)", "#c92a2a"),
+        "rssi_lora": ("LoRa RSSI Over Time", "Time (s)", "RSSI (dBm)", "#c92a2a"),
         "snir_ugv": ("UGV Min SNIR Over Time", "Time (s)", "SNIR (dB)", "#0057b8"),
         "snir_uav": ("UAV Min SNIR Over Time", "Time (s)", "SNIR (dB)", "#7b2cbf"),
+        "snir_lora_server": ("LoRa Server SNIR Over Time", "Time (s)", "SNIR (dB)", "#0057b8"),
         "per_ugv": ("UGV Packet Error Rate Over Time", "Time (s)", "Packet Error Rate", "#2f9e44"),
         "per_uav": ("UAV Packet Error Rate Over Time", "Time (s)", "Packet Error Rate", "#1c7c54"),
         "e2e_delay_ugv": ("UGV End-to-End Delay Over Time", "Time (s)", "Delay (ms)", "#d9480f"),
         "throughput_ugv": ("UGV Throughput Over Time", "Time (s)", "Throughput (bps)", "#0b7285"),
         "throughput_uav": ("UAV Throughput Over Time", "Time (s)", "Throughput (bps)", "#1864ab"),
+        "queue_len_ugv": ("UGV Queue Length", "Time (s)", "Packets", "#2b8a3e"),
+        "queue_len_uav": ("UAV Queue Length", "Time (s)", "Packets", "#364fc7"),
         "in_data_rate_ugv": ("UGV MAC Queue Incoming Data Rate", "Time (s)", "Data Rate (bps)", "#2b8a3e"),
+        "out_data_rate_ugv": ("UGV MAC Queue Outgoing Data Rate", "Time (s)", "Data Rate (bps)", "#0ca678"),
+        "in_data_rate_uav": ("UAV MAC Queue Incoming Data Rate", "Time (s)", "Data Rate (bps)", "#5c7cfa"),
         "out_data_rate_uav": ("UAV MAC Queue Outgoing Data Rate", "Time (s)", "Data Rate (bps)", "#364fc7"),
     }
 
@@ -446,6 +527,8 @@ def main() -> None:
         print(f"Parsed sca: {sca_file}")
     if pathloss_csv and pathloss_csv.exists():
         print(f"RSSI source: {pathloss_csv}")
+    elif series.get("rssi_lora"):
+        print("RSSI source: LoRa vector")
     else:
         print("RSSI source: not found (run path_loss_analysis.py first for RSSI plot)")
     if plot_start_time is None:
@@ -458,6 +541,7 @@ def main() -> None:
     else:
         print(f"Plot start time: {plot_start_time:.3f}s (fixed)")
     print("Plot tail trim: out_data_rate_uav last 2.0s removed (to suppress shutdown spike)")
+    print(f"Output dir: {output_dir}")
     if args.write_csv:
         print(f"Combined metric CSV: {out_csv}")
     else:
